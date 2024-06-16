@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Client</title>
+</head>
+<body>
+    <h1>WebSocket Client</h1>
+    <script>
+        const topic = "myTopic"; // Replace with your desired topic
+
+        const ws = new WebSocket(`ws://127.0.0.1:8000/ws/83afe45dc5a44bc89ee62e7e9abca2e7`);
+
+        ws.onopen = () => {
+            console.log("Connected to WebSocket server!");
+            // Send a message to the server
+            ws.send("Hello from client!");
+        };
+
+        ws.onmessage = (message) => {
+            console.log("Received message:", message.data);
+        };
+
+        ws.onclose = () => {
+            console.log("WebSocket connection closed");
+        };
+    </script>
+</body>
+</html>
