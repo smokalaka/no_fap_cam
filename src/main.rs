@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 use handler::TopicActionRequest;
+use http::header;
 use tokio::sync::{mpsc, RwLock};
 use warp::{ws::Message, Filter, Rejection};
 use crate::handler::{add_topic, remove_topic};
@@ -23,10 +24,18 @@ pub struct Client {
 async fn main() {
 
     println!("Entered main");
+    let cors = warp::cors()
+    .allow_any_origin()
+    .allow_headers(vec![
+        header::CONTENT_TYPE
+    ])
+    .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+    .build();
 
     let clients: Clients = Arc::new(RwLock::new(HashMap::new()));
 
-    let health_route = warp::path!("health").and_then(handler::health_handler);
+    let health_route = warp::path!("health")
+    .and_then(handler::health_handler);
 
     let register = warp::path("register");
     let register_routes = register
@@ -73,9 +82,7 @@ async fn main() {
         .or(publish)
         .or(add_topic_route)
         .or(remove_topic_route)
-        .with(warp::cors().allow_any_origin());
-
-
+        .with(cors);
 
     warp::serve(routes).run(([127, 0, 0, 1], 8000)).await;
 }

@@ -2,29 +2,131 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebSocket Client</title>
+    <title>Rust Server Test</title>
 </head>
 <body>
-    <h1>WebSocket Client</h1>
+    <h1>Rust Server Test</h1>
+    <div>
+        <h2>Register User</h2>
+        <input type="number" id="user_id" placeholder="User ID">
+        <input type="text" id="topic" placeholder="Topic">
+        <button onclick="registerUser()">Register</button>
+        <p id="register_response"></p>
+    </div>
+    <div>
+        <h2>WebSocket Connection</h2>
+        <input type="text" id="ws_url" placeholder="WebSocket URL">
+        <button onclick="connectWebSocket()">Connect</button>
+        <p id="ws_status"></p>
+        <div>
+            <input type="text" id="ws_message" placeholder="Message">
+            <button onclick="sendMessage()">Send Message</button>
+        </div>
+    </div>
+    <div>
+        <h2>Publish Message</h2>
+        <input type="text" id="pub_topic" placeholder="Topic">
+        <input type="text" id="pub_message" placeholder="Message">
+        <button onclick="publishMessage()">Publish</button>
+    </div>
+    <div>
+        <h2>Add Topic</h2>
+        <input type="text" id="add_topic_client_id" placeholder="Client ID">
+        <input type="text" id="add_topic" placeholder="Topic">
+        <button onclick="addTopic()">Add Topic</button>
+    </div>
+    <div>
+        <h2>Remove Topic</h2>
+        <input type="text" id="remove_topic_client_id" placeholder="Client ID">
+        <input type="text" id="remove_topic" placeholder="Topic">
+        <button onclick="removeTopic()">Remove Topic</button>
+    </div>
+
     <script>
-        const topic = "myTopic"; // Replace with your desired topic
+        let ws;
 
-        const ws = new WebSocket(`ws://127.0.0.1:8000/ws/83afe45dc5a44bc89ee62e7e9abca2e7`);
+        async function registerUser() {
+            const userId = document.getElementById('user_id').value;
+            const topic = document.getElementById('topic').value;
 
-        ws.onopen = () => {
-            console.log("Connected to WebSocket server!");
-            // Send a message to the server
-            ws.send("Hello from client!");
-        };
+            const response = await fetch('http://localhost:8000/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ user_id: parseInt(userId), topic: topic }),
+                //mode: 'no-cors'
+            });
 
-        ws.onmessage = (message) => {
-            console.log("Received message:", message.data);
-        };
+            const data = await response.json();
+            document.getElementById('register_response').innerText = `Registered: ${data.url}`;
+            document.getElementById('ws_url').value = data.url;
+        }
 
-        ws.onclose = () => {
-            console.log("WebSocket connection closed");
-        };
+        function connectWebSocket() {
+            const wsUrl = document.getElementById('ws_url').value;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                document.getElementById('ws_status').innerText = 'WebSocket connected';
+            };
+
+            ws.onmessage = (event) => {
+                console.log('Message from server: ', event.data);
+            };
+
+            ws.onclose = () => {
+                document.getElementById('ws_status').innerText = 'WebSocket disconnected';
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error: ', error);
+            };
+        }
+
+        function sendMessage() {
+            const message = document.getElementById('ws_message').value;
+            ws.send(message);
+        }
+
+        async function publishMessage() {
+            const topic = document.getElementById('pub_topic').value;
+            const message = document.getElementById('pub_message').value;
+
+            await fetch('http://localhost:8000/publish', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ topic: topic, message: message })
+            });
+        }
+
+        async function addTopic() {
+            const clientId = document.getElementById('add_topic_client_id').value;
+            const topic = document.getElementById('add_topic').value;
+
+            await fetch('http://localhost:8000/add_topic', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ client_id: clientId, topic: topic })
+            });
+        }
+
+        async function removeTopic() {
+            const clientId = document.getElementById('remove_topic_client_id').value;
+            const topic = document.getElementById('remove_topic').value;
+
+            await fetch('http://localhost:8000/remove_topic', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ client_id: clientId, topic: topic })
+            });
+        }
     </script>
 </body>
 </html>
