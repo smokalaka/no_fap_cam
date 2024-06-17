@@ -38,7 +38,6 @@ pub async fn publish_handler(body: Event, clients: Clients) -> Result<impl Reply
         })
         .filter(|(_, client)| client.topics.contains(&body.topic))
         .for_each(|(_, client)| {
-            println!("sending to some client with id: {}", client.user_id);
             if let Some(sender) = &client.sender {
                 let _ = sender.send(Ok(Message::text(body.message.clone())));
             }
