@@ -1,4 +1,5 @@
-use crate::{Client, Clients};
+use crate::{Client, Clients, PoolClient, PoolClients, Result};
+
 use futures::{FutureExt, StreamExt};
 use serde::Deserialize;
 use serde_json::from_str;
@@ -9,6 +10,64 @@ use warp::ws::{Message, WebSocket};
 #[derive(Deserialize, Debug)]
 pub struct TopicsRequest {
     topics: Vec<String>,
+}
+
+pub async fn pool_client_connection(ws: WebSocket, id: String, pool_clients: PoolClients, 
+    mut pool_client: PoolClient) {
+    let (pool_client_ws_sender, mut pool_client_ws_rcv) = ws.split();
+    let (pool_client_sender, pool_client_rcv) = mpsc::unbounded_channel();
+
+    let pool_client_rcv = UnboundedReceiverStream::new(pool_client_rcv);
+    
+    tokio::task::spawn(
+        pool_client_rcv.forward(pool_client_ws_sender).map(|result| {
+            if let Err(e) = result {
+                eprintln!("error sending wesocket message: {}", e);
+            }
+        })
+    );
+
+    pool_client.sender = Some(pool_client_sender);
+    pool_clients.write().await.insert(id.clone(), pool_client);
+
+    println!("{} connected", id);
+
+    while let Some(result) = pool_client_ws_rcv.next().await {
+        let msg = match result {
+            Ok(msg) => msg,
+            Err(e) => {
+                eprint!("error receiving WS message for id: {}: {}",id.clone(), e);
+                break;
+            }
+        };
+        pool_client_msg(&id, msg, &pool_clients).await;
+    }
+
+    pool_clients.write().await.remove(&id);
+    println!("{} disconnected", id);
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(tag = "type", content = "data")]
+pub enum ClientMessage {
+    Ping,
+}
+
+async fn pool_client_msg(id: &str, msg: Message, pool_clients: &PoolClients) {
+    println!("received message from {}: {:?}", id, msg);
+    let message = match msg.to_str() {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    match from_str::<ClientMessage>(message) {
+        Ok(ClientMessage::Ping) => {
+            println!("Ping received from {}", id);
+        }
+        Err(e) => {
+            eprintln!("error while parsing message to client message: {}", e);
+        }
+    }
 }
 
 pub async fn client_connection(ws: WebSocket, id: String, clients: Clients, mut client: Client) {

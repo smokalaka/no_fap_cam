@@ -11,7 +11,7 @@
         <input type="number" id="user_id" placeholder="User ID">
         <input type="text" id="topic" placeholder="Topic">
         <button onclick="registerUser()">Register</button>
-        <p id="register_response"></p>
+        <p id="join_response"></p>
     </div>
     <div>
         <h2>WebSocket Connection</h2>
@@ -51,16 +51,15 @@
             registeredUserId = userId;
             const topic = document.getElementById('topic').value;
 
-            const response = await fetch('http://localhost:8000/register', {
+            const response = await fetch('http://localhost:8000/join', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ user_id: parseInt(userId), topic: topic })
             });
 
             const data = await response.json();
-            document.getElementById('register_response').innerText = `Registered: ${data.url}`;
+            document.getElementById('join_response').innerText = `Joined: ${data.url}`;
             document.getElementById('ws_url').value = data.url;
         }
 

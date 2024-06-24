@@ -12,11 +12,18 @@ mod ws;
 
 type Result<T> = std::result::Result<T, Rejection>;
 type Clients = Arc<RwLock<HashMap<String, Client>>>;
+type PoolClients = Arc<RwLock<HashMap<String, PoolClient>>>;
 
 #[derive(Debug, Clone)]
 pub struct Client {
     pub user_id: usize,
     pub topics: Vec<String>,
+    pub sender: Option<mpsc::UnboundedSender<std::result::Result<Message, warp::Error>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PoolClient {
+    pub user_id: String,
     pub sender: Option<mpsc::UnboundedSender<std::result::Result<Message, warp::Error>>>,
 }
 
@@ -33,6 +40,26 @@ async fn main() {
     .build();
 
     let clients: Clients = Arc::new(RwLock::new(HashMap::new()));
+
+    let pool_clients: PoolClients = Arc::new(RwLock::new(HashMap::new()));
+
+    let join_route = warp::path("join")
+        .and(warp::post())
+        .and_then(handler::join_handler);
+
+    let ws_conn_route = warp::path("ws")
+        .and(warp::ws())
+        .and(warp::path::param())
+        .and(with_pool_clients(pool_clients.clone()))
+        .and_then(handler::ws_conn_handler);
+
+
+
+
+
+
+
+
 
     let health_route = warp::path!("health")
     .and_then(handler::health_handler);
@@ -82,6 +109,8 @@ async fn main() {
         .or(publish)
         .or(add_topic_route)
         .or(remove_topic_route)
+        .or(join_route)
+        .or(ws_conn_route)
         .with(cors);
 
     warp::serve(routes).run(([127, 0, 0, 1], 8000)).await;
@@ -89,4 +118,8 @@ async fn main() {
 
 fn with_clients(clients: Clients) -> impl Filter<Extract = (Clients,), Error = Infallible> + Clone {
     warp::any().map(move || clients.clone())
+}
+
+fn with_pool_clients(pool_clients: PoolClients) -> impl Filter<Extract = (PoolClients,), Error = Infallible> + Clone {
+    warp::any().map(move || pool_clients.clone())
 }
