@@ -1,123 +1,91 @@
-use std::collections::HashMap;
+use std::time::Duration;
+use std::{collections::HashMap, sync::Mutex};
 use std::convert::Infallible;
 use std::sync::Arc;
-use handler::TopicActionRequest;
+use std::thread::sleep;
 use http::header;
 use tokio::sync::{mpsc, RwLock};
 use warp::{ws::Message, Filter, Rejection};
-use crate::handler::{add_topic, remove_topic};
+use ws::create_peer_mapping;
 
 mod handler;
 mod ws;
 
 type Result<T> = std::result::Result<T, Rejection>;
-type Clients = Arc<RwLock<HashMap<String, Client>>>;
 type PoolClients = Arc<RwLock<HashMap<String, PoolClient>>>;
+type PeerMap = Arc<RwLock<HashMap<String, String>>>;
 
-#[derive(Debug, Clone)]
-pub struct Client {
-    pub user_id: usize,
-    pub topics: Vec<String>,
-    pub sender: Option<mpsc::UnboundedSender<std::result::Result<Message, warp::Error>>>,
-}
 
 #[derive(Debug, Clone)]
 pub struct PoolClient {
     pub user_id: String,
     pub sender: Option<mpsc::UnboundedSender<std::result::Result<Message, warp::Error>>>,
+    pub offer: Option<String>,
 }
 
 #[tokio::main]
 async fn main() {
 
     println!("Entered main");
-    let cors = warp::cors()
-    .allow_any_origin()
-    .allow_headers(vec![
-        header::CONTENT_TYPE
-    ])
-    .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
-    .build();
-
-    let clients: Clients = Arc::new(RwLock::new(HashMap::new()));
 
     let pool_clients: PoolClients = Arc::new(RwLock::new(HashMap::new()));
+    let peer_map: PeerMap = Arc::new(RwLock::new(HashMap::new()));
 
     let join_route = warp::path("join")
-        .and(warp::post())
-        .and_then(handler::join_handler);
+    .and(warp::post())
+    .and_then(handler::join_handler);
 
     let ws_conn_route = warp::path("ws")
         .and(warp::ws())
         .and(warp::path::param())
         .and(with_pool_clients(pool_clients.clone()))
+        .and(with_peer_map(peer_map.clone()))
         .and_then(handler::ws_conn_handler);
-
-
-
-
-
-
-
-
-
-    let health_route = warp::path!("health")
-    .and_then(handler::health_handler);
-
-    let register = warp::path("register");
-    let register_routes = register
-        .and(warp::post())
-        .and(warp::body::json())
-        .and(with_clients(clients.clone()))
-        .and_then(handler::register_handler)
-        .or(
-            register
-            .and(warp::delete())
-            .and(warp::path::param())
-            .and(with_clients(clients.clone()))
-            .and_then(handler::unregister_handler)
-        );
-
-    let publish = warp::path!("publish")
-        .and(warp::body::json())
-        .and(with_clients(clients.clone()))
-        .and_then(handler::publish_handler);
-
-    let ws_route = warp::path("ws")
-        .and(warp::ws())
-        .and(warp::path::param())
-        .and(with_clients(clients.clone()))
-        .and_then(handler::ws_handler);
-
-    let clients_for_add = clients.clone();
-    let add_topic_route = warp::post()
-        .and(warp::path("add_topic"))
-        .and(warp::body::json::<TopicActionRequest>())
-        .and(warp::any().map(move || clients_for_add.clone()))
-        .and_then(add_topic);
-    
-    let clients_for_remove = clients.clone();
-    let remove_topic_route = warp::delete()
-        .and(warp::path("remove_topic"))
-        .and(warp::body::json::<TopicActionRequest>())
-        .and(warp::any().map(move || clients_for_remove.clone()))
-        .and_then(remove_topic);
         
-    let routes = health_route
-        .or(register_routes)
-        .or(ws_route)
-        .or(publish)
-        .or(add_topic_route)
-        .or(remove_topic_route)
-        .or(join_route)
+    let cors = warp::cors()
+        .allow_any_origin()
+        .allow_headers(vec![
+            header::CONTENT_TYPE
+        ])
+        .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+        .build();
+
+    let routes = join_route
         .or(ws_conn_route)
         .with(cors);
 
     warp::serve(routes).run(([127, 0, 0, 1], 8000)).await;
+
+    loop {
+        find_and_pair_peers(&pool_clients, &peer_map).await;
+        sleep(Duration::from_millis(2000));
+    }
 }
 
-fn with_clients(clients: Clients) -> impl Filter<Extract = (Clients,), Error = Infallible> + Clone {
-    warp::any().map(move || clients.clone())
+// the problem with this code is that I'm not tracking which clients are already matched
+// we don't need to match them again with someone.
+async fn find_and_pair_peers(pool_clients: &PoolClients, peer_map: &PeerMap) {
+    let pool_lock = pool_clients.read().await;
+
+    let available_clients: Vec<_> = pool_lock.iter().map(|(_, id)| id.clone()).collect();
+
+    for i in (0..available_clients.len()).step_by(2) {
+        if i + 1 < available_clients.len() {
+            let client1 = &available_clients[i];
+            let client2 = &available_clients[i + 1];
+            let result = create_peer_mapping(client1, client2, peer_map).await;
+            if result {
+                println!("Created peer mapping for client1: {} and client2: {}", 
+                    client1.user_id, 
+                    client2.user_id
+                );
+            }
+        }
+    }
+}
+
+fn with_peer_map(peer_map: PeerMap) -> impl Filter<Extract = (PeerMap,), Error = Infallible> + Clone {
+    warp::any().map(move || peer_map.clone())
 }
 
 fn with_pool_clients(pool_clients: PoolClients) -> impl Filter<Extract = (PoolClients,), Error = Infallible> + Clone {
