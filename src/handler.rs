@@ -38,6 +38,7 @@ async fn add_to_client_pool(id: String, pool_clients: PoolClients) -> bool {
             user_id: id.clone(),
             sender: None,
             offer: None,
+            paired: false,
         },
     );
 

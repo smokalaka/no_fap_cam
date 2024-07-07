@@ -121,17 +121,22 @@ async fn send_to_pool_client(pool_client: &PoolClient, message: String) {
 // Think about removing these from active pool
 // also, where to tell them to exchange information to start connecting with each other.
 pub async fn create_peer_mapping(
-    pool_client1: &PoolClient, 
-    pool_client2: &PoolClient, 
-    peer_map: &PeerMap
+    pool_client1_id: &String, 
+    pool_client2_id: &String, 
+    peer_map: &PeerMap,
+    pool_clients: &PoolClients
 ) -> bool {
     // read lock releases after this block.
     {
+        // todo - either keep peer map and below implementation as it is.
+        // or we can use the .paired field of pool_client object
+        println!("waiting for lock on peer map");
         let mapping = peer_map.read().await;
-        if mapping.get(&pool_client1.user_id).is_some() {
+        println!("peer map lock acquired");
+        if mapping.get(pool_client1_id).is_some() {
             println!("Mapping already exists for. id1: {} and id2: {}",
-                pool_client1.user_id,
-                pool_client2.user_id
+                pool_client1_id,
+                pool_client2_id
             );
             return false;
         }
@@ -139,13 +144,30 @@ pub async fn create_peer_mapping(
 
     // write lock releases after this block.
     {
-        let mut mapping = peer_map.write().await;
-        mapping.insert(pool_client1.user_id.clone(), pool_client2.user_id.clone());
-        mapping.insert(pool_client2.user_id.clone(), pool_client1.user_id.clone());
+        println!("waiting for lock on peer map1");
+        let mut write_mapping = peer_map.write().await;
+        println!("peer map lock acquired1");
+        // either we'll use peer_mapping or the .paired field.
+        // to be decided later.
+        println!("writing to peer map");
+        write_mapping.insert(pool_client1_id.to_string(), pool_client2_id.to_string());
+        write_mapping.insert(pool_client2_id.to_string(), pool_client1_id.to_string());
+        println!("done wrting to peer map");
+
+        println!("waiting for lock on pool clients");
+        let mut read_mapping = pool_clients.write().await;
+        println!("pool clients lock acquired");
+
+        if let Some(pool_client1) = read_mapping.get_mut(pool_client1_id) {
+            pool_client1.paired = true;
+        }
+        if let Some(pool_client2) = read_mapping.get_mut(pool_client2_id) {
+            pool_client2.paired = true;
+        }
 
         println!("Mapping {} and {} as peers.", 
-            pool_client1.user_id, 
-            pool_client2.user_id
+            pool_client1_id, 
+            pool_client2_id
         );
     }
 

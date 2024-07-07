@@ -21,6 +21,7 @@ pub struct PoolClient {
     pub user_id: String,
     pub sender: Option<mpsc::UnboundedSender<std::result::Result<Message, warp::Error>>>,
     pub offer: Option<String>,
+    pub paired: bool,
 }
 
 #[tokio::main]
@@ -54,30 +55,50 @@ async fn main() {
         .or(ws_conn_route)
         .with(cors);
 
-    warp::serve(routes).run(([127, 0, 0, 1], 8000)).await;
+    tokio::spawn(async move {
+        loop {
+            println!("find_and_pair_peers iter enter");
+            find_and_pair_peers(&pool_clients, &peer_map).await;
+            println!("find_and_pair_peers iter exit");
+            sleep(Duration::from_millis(5000));
+        }
+    });
 
-    loop {
-        find_and_pair_peers(&pool_clients, &peer_map).await;
-        sleep(Duration::from_millis(2000));
-    }
+    warp::serve(routes).run(([127, 0, 0, 1], 8000)).await;
 }
 
 // the problem with this code is that I'm not tracking which clients are already matched
 // we don't need to match them again with someone.
 async fn find_and_pair_peers(pool_clients: &PoolClients, peer_map: &PeerMap) {
-    let pool_lock = pool_clients.read().await;
+    println!("trying to find_and_pair_peers");
 
-    let available_clients: Vec<_> = pool_lock.iter().map(|(_, id)| id.clone()).collect();
+    // todo, we don't need the paired field, we can check peer_map for is mapped.
+    let available_clients: Vec<_> = {
+        let pool_lock = pool_clients.read().await;
+                                    pool_lock.iter()
+                                    .filter_map(|(pool_client_id, pool_client)| {
+                                        if pool_client.paired == false {
+                                            Some(pool_client_id.clone())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect()
+    };
+
+    println!("available_clients vector: {:?}", available_clients);
 
     for i in (0..available_clients.len()).step_by(2) {
         if i + 1 < available_clients.len() {
-            let client1 = &available_clients[i];
-            let client2 = &available_clients[i + 1];
-            let result = create_peer_mapping(client1, client2, peer_map).await;
+            let client1_id = &available_clients[i];
+            let client2_id = &available_clients[i + 1];
+            println!("create_peer_mapping starting");
+            let result = create_peer_mapping(client1_id, client2_id, peer_map, pool_clients).await;
+            println!("create_peer_mapping ending");
             if result {
                 println!("Created peer mapping for client1: {} and client2: {}", 
-                    client1.user_id, 
-                    client2.user_id
+                    client1_id, 
+                    client2_id
                 );
             }
         }
